@@ -1,0 +1,237 @@
+{
+  "name": "שמירת פרטי קשר מדיה חברתית",
+  "nodes": [
+    {
+      "id": "n1-webhook-trigger",
+      "name": "ManyChat Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [260, 300],
+      "parameters": {
+        "path": "manychat-leads-sync",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "manychat-leads-sync"
+    },
+    {
+      "id": "n2-search-airtable",
+      "name": "חיפוש לקוח קיים",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.airtable.com/v0/applwPfaYwZiyJlM6/tblWPvL8NxFMzpyHJ",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "OR({Email}='{{ $json.email }}',{טלפון}='{{ $json.phone }}')"
+            },
+            {
+              "name": "maxRecords",
+              "value": "1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Airtable API"
+        }
+      }
+    },
+    {
+      "id": "n3-if-exists",
+      "name": "לקוח קיים?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [700, 300],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-records-exist",
+              "leftValue": "={{ $json.records.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "n4a-code-update",
+      "name": "בניית עדכון לקוח",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, 180],
+      "parameters": {
+        "jsCode": "const wh = $('ManyChat Webhook').first().json;\nconst rec = $('חיפוש לקוח קיים').first().json.records[0];\nconst existingLog = (rec.fields['WhatsApp Comments Log'] || '').trim();\n\nconst now = new Date();\nconst ts = now.toLocaleString('he-IL', {\n  timeZone: 'Asia/Jerusalem',\n  day: '2-digit', month: '2-digit', year: 'numeric',\n  hour: '2-digit', minute: '2-digit'\n});\n\nconst q = '\"';\nconst newLine = '[' + ts + '] פלטפורמה: ' + (wh.platform || '') + ' | פוסט: ' + (wh.post_url || '') + ' | הודעה: ' + q + (wh.trigger_message || '') + q;\nconst updatedLog = existingLog ? newLine + '\\n' + existingLog : newLine;\n\nreturn [{\n  json: {\n    recordId: rec.id,\n    fields: {\n      'Source Platform': wh.platform || '',\n      'Source Post URL': wh.post_url || '',\n      'DM Keyword Used': wh.dm_keyword || '',\n      'Source Content ID': wh.content_id || '',\n      'ManyChat Subscriber ID': wh.subscriber_id || '',\n      'Last Attribution Date': now.toISOString(),\n      'WhatsApp Comments Log': updatedLog\n    }\n  }\n}];"
+      }
+    },
+    {
+      "id": "n4b-code-create",
+      "name": "בניית לקוח חדש",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, 420],
+      "parameters": {
+        "jsCode": "const wh = $('ManyChat Webhook').first().json;\n\nconst now = new Date();\nconst ts = now.toLocaleString('he-IL', {\n  timeZone: 'Asia/Jerusalem',\n  day: '2-digit', month: '2-digit', year: 'numeric',\n  hour: '2-digit', minute: '2-digit'\n});\n\nconst q = '\"';\nconst logEntry = '[' + ts + '] נוצר דרך ' + (wh.platform || '') + ' | פוסט: ' + (wh.post_url || '') + ' | הודעה: ' + q + (wh.trigger_message || '') + q;\n\nreturn [{\n  json: {\n    fields: {\n      'שם פרטי': wh.first_name || '',\n      'שם משפחה': wh.last_name || '',\n      'שם מלא': ((wh.first_name || '') + ' ' + (wh.last_name || '')).trim(),\n      'טלפון': wh.phone || '',\n      'Email': wh.email || '',\n      'Source Platform': wh.platform || '',\n      'Source Post URL': wh.post_url || '',\n      'Source Content ID': wh.content_id || '',\n      'Source Funnel': 'DM',\n      'ManyChat Subscriber ID': wh.subscriber_id || '',\n      'DM Keyword Used': wh.dm_keyword || '',\n      'WhatsApp Comments Log': logEntry,\n      'Social Automation Lead': true,\n      'מקור הגעה': ['צ׳ט בוט'],\n      'First Attribution Date': now.toISOString(),\n      'Last Attribution Date': now.toISOString()\n    }\n  }\n}];"
+      }
+    },
+    {
+      "id": "n5a-http-update",
+      "name": "עדכון רשומת לקוח",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1140, 180],
+      "parameters": {
+        "method": "PATCH",
+        "url": "https://api.airtable.com/v0/applwPfaYwZiyJlM6/tblWPvL8NxFMzpyHJ/{{ $json.recordId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { fields: $json.fields } }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Airtable API"
+        }
+      }
+    },
+    {
+      "id": "n5b-http-create",
+      "name": "יצירת רשומת לקוח חדשה",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1140, 420],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/applwPfaYwZiyJlM6/tblWPvL8NxFMzpyHJ",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { fields: $json.fields } }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Airtable API"
+        }
+      }
+    },
+    {
+      "id": "n6-lead-event",
+      "name": "רישום אירוע ליד",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1360, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/applwPfaYwZiyJlM6/tblJCSzne2382Eguj",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { fields: { 'Lead Event ID': 'MC-' + ($('ManyChat Webhook').first().json.subscriber_id || 'unknown') + '-' + Date.now(), 'Client Phone Ref': $('ManyChat Webhook').first().json.phone || '', 'Event Type': 'Social Media DM', 'Event DateTime': new Date().toISOString(), 'Platform': $('ManyChat Webhook').first().json.platform || '', 'Source Post URL': $('ManyChat Webhook').first().json.post_url || '', 'ManyChat Subscriber ID': $('ManyChat Webhook').first().json.subscriber_id || '', 'Raw Payload': JSON.stringify($('ManyChat Webhook').first().json), 'Notes': $('ManyChat Webhook').first().json.trigger_message || '' } } }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Airtable API"
+        }
+      }
+    },
+    {
+      "id": "n7-respond",
+      "name": "תגובת הצלחה",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1580, 300],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'ok', message: 'Lead processed successfully', timestamp: new Date().toISOString() } }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "ManyChat Webhook": {
+      "main": [
+        [{"node": "חיפוש לקוח קיים", "type": "main", "index": 0}]
+      ]
+    },
+    "חיפוש לקוח קיים": {
+      "main": [
+        [{"node": "לקוח קיים?", "type": "main", "index": 0}]
+      ]
+    },
+    "לקוח קיים?": {
+      "main": [
+        [{"node": "בניית עדכון לקוח", "type": "main", "index": 0}],
+        [{"node": "בניית לקוח חדש", "type": "main", "index": 0}]
+      ]
+    },
+    "בניית עדכון לקוח": {
+      "main": [
+        [{"node": "עדכון רשומת לקוח", "type": "main", "index": 0}]
+      ]
+    },
+    "בניית לקוח חדש": {
+      "main": [
+        [{"node": "יצירת רשומת לקוח חדשה", "type": "main", "index": 0}]
+      ]
+    },
+    "עדכון רשומת לקוח": {
+      "main": [
+        [{"node": "רישום אירוע ליד", "type": "main", "index": 0}]
+      ]
+    },
+    "יצירת רשומת לקוח חדשה": {
+      "main": [
+        [{"node": "רישום אירוע ליד", "type": "main", "index": 0}]
+      ]
+    },
+    "רישום אירוע ליד": {
+      "main": [
+        [{"node": "תגובת הצלחה", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1.0.0",
+  "meta": {
+    "instanceId": "sivaninvest-social-media-lead-capture"
+  },
+  "id": "manychat-airtable-sync-v1",
+  "tags": []
+}
