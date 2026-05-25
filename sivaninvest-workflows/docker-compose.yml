@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    ports:
+      - '5678:5678'
+    environment:
+      - N8N_HOST=${N8N_HOST:-0.0.0.0}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+      - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678/}
+      - GENERIC_TIMEZONE=Asia/Jerusalem
+      - N8N_DEFAULT_LOCALE=he
+      - N8N_SECURE_COOKIE=false
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./:/sivaninvest-workflows:ro
+
+  n8n-init:
+    image: n8nio/n8n:latest
+    depends_on:
+      n8n:
+        condition: service_started
+    environment:
+      - N8N_HOST=${N8N_HOST:-0.0.0.0}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+      - AIRTABLE_API_KEY=${AIRTABLE_API_KEY}
+      - N8N_API_KEY=${N8N_API_KEY:-}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./:/sivaninvest-workflows:ro
+    entrypoint: >
+      sh -c "
+        echo 'Waiting for n8n to start...' &&
+        sleep 15 &&
+        echo 'Importing Airtable credential...' &&
+        N8N_USER_FOLDER=/home/node/.n8n
+        cat /sivaninvest-workflows/airtable-credential.template.json |
+          sed \"s|Bearer REPLACE_WITH_YOUR_AIRTABLE_API_KEY|Bearer $$AIRTABLE_API_KEY|g\" >
+          /tmp/airtable-credential.json &&
+        n8n import:credentials --input=/tmp/airtable-credential.json &&
+        echo 'Importing workflow...' &&
+        n8n import:workflow --input=/sivaninvest-workflows/manychat-airtable-sync.workflow.json &&
+        echo 'Setup complete!'
+      "
+    restart: on-failure
+
+volumes:
+  n8n_data:
